@@ -56,7 +56,7 @@ process LIMA {
     output:
     tuple val(bam_id), path("${bam_id}.lima.output.*.bam"), emit: bam
     path "${bam_id}.lima.output.*.bam.pbi", emit: index
-
+    tuple val(bam_id), path("*.output.lima.counts"), path("*.output.lima.summary"), emit: stats
     script:
     """
     lima --per-read --isoseq $bam $primers ${bam_id}.lima.output.bam
@@ -94,7 +94,7 @@ process ISOSEQ_REFINE {
     //tuple val(bam_id), path("*.report.json"), path("*.report.csv"), emit: reports
     path("*.report.json"), emit: reports_json
     path("*.report.csv"), emit: reports_csv
-
+    tuple val(bam_id), path("*.report.json"), path("*.report.csv"), emit: reports
     """
     isoseq refine $bam $primers ${bam_id}.fltnc.bam --require-polya --num-threads ${task.cpus}
     """
@@ -307,8 +307,9 @@ process MULTIQC {
     publishDir "${params.outdir}/multiqc", mode: 'copy'
 
     input:
-    path isoseq_refine_reports_json
-    path isoseq_refine_reports_csv
+    //path isoseq_refine_reports_json
+    //path isoseq_refine_reports_csv
+    path multiqc_files
 
     output:
     path "*.html"
@@ -415,9 +416,16 @@ workflow {
     pigeon_seurat_in_ch = pigeon_seurat_in_prep_ch
                        .join(PIGEON_FILTER.out.classification)
     PIGEON_SEURAT(pigeon_seurat_in_ch)
+    multiqc_input_ch = ISOSEQ_REFINE.out.reports.map{ [ it[1], it[2] ] }
+                       .mix(
+                           LIMA.out.stats.map{ [ it[1], it[2] ] } 
+                       )
+                       .collect()
+    multiqc_input_ch.view()
     MULTIQC(
-            ISOSEQ_REFINE.out.reports_json.collect(),
-            ISOSEQ_REFINE.out.reports_csv.collect()
+            multiqc_input_ch
+            //ISOSEQ_REFINE.out.reports_json.collect(),
+            //ISOSEQ_REFINE.out.reports_csv.collect()
             )
 }
 
