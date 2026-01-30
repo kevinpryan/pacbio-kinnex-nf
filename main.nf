@@ -314,7 +314,8 @@ process PIGEON_CLASSIFY {
     script:
     """
     pigeon classify $gff \
-                    --ref $reference
+                    $annotation \
+                    $reference \
                     --fl $abundance \
                     --cage-peak $cage_bed \
                     --poly-a $poly_a \
