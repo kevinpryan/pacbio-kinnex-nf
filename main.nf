@@ -241,7 +241,7 @@ process PIGEON_PREPARE {
     path gtf
     path reference
     output:
-    path "*.fasta.fai", emit: fai
+    path "*.{fasta,fa}.fai", emit: fai
     path "*.sorted.gtf", emit: gtf_sorted    
     path "*.sorted.gtf.pgi", emit: gtf_sorted_pgi
     script:
@@ -264,6 +264,7 @@ process PIGEON_PREPARE_GFF {
     """
 }
 
+/*
 process PIGEON_CLASSIFY {
     label "PIGEON_CONTAINER"
     tag "$bam_id"
@@ -284,6 +285,40 @@ process PIGEON_CLASSIFY {
                     $annotation \
                     $reference \
                     --fl $abundance \
+                    --num-threads ${task.cpus}
+    """
+}
+*/
+process PIGEON_CLASSIFY {
+    label "PIGEON_CONTAINER"
+    tag "$bam_id"
+
+    input:
+    tuple val(bam_id), path(gff), path(abundance)
+    path reference
+    path reference_index
+    path annotation
+    path annotation_index
+    path cage_bed
+    path cage_index
+    path poly_a
+    path intropolis
+    path intropolis_index
+
+    output:
+    tuple val(bam_id), path("${bam_id}_junctions.txt"), emit: junctions
+    tuple val(bam_id), path("${bam_id}_classification.txt"), emit: classification
+    tuple val(bam_id), path("${bam_id}.summary.txt"), emit: summary
+    tuple val(bam_id), path("${bam_id}.report.json"), emit: report
+
+    script:
+    """
+    pigeon classify $gff \
+                    --ref $reference
+                    --fl $abundance \
+                    --cage-peak $cage_bed \
+                    --poly-a $poly_a \
+                    --intropolis $intropolis \
                     --num-threads ${task.cpus}
     """
 }
@@ -354,13 +389,19 @@ process PIGEON_SEURAT {
 
     input:
     tuple val(bam_id), path(dedup_fasta), path(collapse_group), path(classification_filtered_lite)
+    val parstr
 
     output:
     tuple val(bam_id), path("${bam_id}_pigeon_seurat"), emit: seurat
 
     script:
     """
-    pigeon make-seurat --dedup $dedup_fasta --group $collapse_group -d ${bam_id}_pigeon_seurat $classification_filtered_lite
+    pigeon make-seurat \
+           --dedup $dedup_fasta \
+           --group $collapse_group \
+           -d ${bam_id}_pigeon_seurat \
+           ${parstr} \
+           $classification_filtered_lite
     """
 }
 
@@ -471,9 +512,23 @@ workflow {
     design_ch = Channel.value(params.design)
     barcodes_ch = Channel.value(file(params.barcodes))
     reference_ch = Channel.value(file(params.reference))
-    annotation_ch_gzipped = Channel.value(file(params.gtf))
-    PREPARE_REFERENCE_GTF(annotation_ch_gzipped)
-    annotation_ch = PREPARE_REFERENCE_GTF.out.gtf
+    reference_fai_ch = Channel.value(file(params.reference_fai))
+    gtf_sorted_ch = Channel.value(file(params.gtf_sorted))
+    gtf_sorted_pgi_ch = Channel.value(file(params.gtf_sorted_pgi))
+    //annotation_ch_gzipped = Channel.value(file(params.gtf))
+
+    //PREPARE_REFERENCE_GTF(
+    //                      annotation_ch_gzipped
+     //                     )
+
+    // annotation_ch = PREPARE_REFERENCE_GTF.out.gtf
+    cage_bed_ch = Channel.value(file(params.cage_bed))
+    cage_index_ch = Channel.value(file(params.cage_bed_index)) // The .pgi file
+    poly_a_ch = Channel.value(file(params.poly_a))
+    intropolis_ch = Channel.value(file(params.intropolis))
+    intropolis_index_ch = Channel.value(file(params.intropolis_index)) // The .pgi file
+
+    //reference_set_ch = Channel.value(file(params.reference_set))
     if ( params.run_skera ) {
         mas_adapters_ch = Channel.value(file(params.adapters))
         if ( params.subsample_hifi_bam ) {
@@ -574,11 +629,12 @@ workflow {
     ISOSEQ_COLLAPSE(
         PBMM2_ALIGN.out.bam
     )
-
+    /*
     PIGEON_PREPARE(
         annotation_ch,
         reference_ch
     )
+    */
 
     PIGEON_PREPARE_GFF(
         ISOSEQ_COLLAPSE.out.gff
@@ -586,7 +642,7 @@ workflow {
 
     classify_input_ch = PIGEON_PREPARE_GFF.out.gff
                         .join(ISOSEQ_COLLAPSE.out.abundance)
-
+    /*
     PIGEON_CLASSIFY(
         classify_input_ch,
         reference_ch,
@@ -594,7 +650,22 @@ workflow {
         PIGEON_PREPARE.out.gtf_sorted,
         PIGEON_PREPARE.out.gtf_sorted_pgi
     )
-    
+    */
+
+    PIGEON_CLASSIFY(
+        classify_input_ch,
+        reference_ch,
+        reference_fai_ch,
+        gtf_sorted_ch,
+        gtf_sorted_pgi_ch,
+        // Pass the new channels here
+        cage_bed_ch,
+        cage_index_ch,
+        poly_a_ch,
+        intropolis_ch,
+        intropolis_index_ch
+    )
+
     filter_input_prep_ch = PIGEON_CLASSIFY.out.classification
                            .join(PIGEON_CLASSIFY.out.junctions)
 
@@ -614,8 +685,19 @@ workflow {
 
     pigeon_seurat_in_ch = pigeon_seurat_in_prep_ch
                        .join(PIGEON_FILTER.out.classification)
+    
+    if ( params.pigeon_remove_ribosomal_mitochondrial ) {
+        pigeon_seurat_opts = ""
+    } else {
+        pigeon_seurat_opts = "--keep-ribo-mito-genes"
+    }
 
-    PIGEON_SEURAT(pigeon_seurat_in_ch)
+    pigeon_seurat_opts_ch = Channel.value(pigeon_seurat_opts)
+    
+    PIGEON_SEURAT(
+                  pigeon_seurat_in_ch,
+                  pigeon_seurat_opts_ch
+                  )
 
     multiqc_input_ch = ISOSEQ_REFINE.out.reports.map{ [ it[1], it[2] ] }
                        .mix(
