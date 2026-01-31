@@ -302,8 +302,6 @@ process PIGEON_CLASSIFY {
     path cage_bed
     path cage_index
     path poly_a
-    path intropolis
-    path intropolis_index
 
     output:
     tuple val(bam_id), path("${bam_id}_junctions.txt"), emit: junctions
@@ -319,7 +317,6 @@ process PIGEON_CLASSIFY {
                     --fl $abundance \
                     --cage-peak $cage_bed \
                     --poly-a $poly_a \
-                    --intropolis $intropolis \
                     --num-threads ${task.cpus}
     """
 }
@@ -526,8 +523,6 @@ workflow {
     cage_bed_ch = Channel.value(file(params.cage_bed))
     cage_index_ch = Channel.value(file(params.cage_bed_index)) // The .pgi file
     poly_a_ch = Channel.value(file(params.poly_a))
-    intropolis_ch = Channel.value(file(params.intropolis))
-    intropolis_index_ch = Channel.value(file(params.intropolis_index)) // The .pgi file
 
     //reference_set_ch = Channel.value(file(params.reference_set))
     if ( params.run_skera ) {
@@ -662,9 +657,7 @@ workflow {
         // Pass the new channels here
         cage_bed_ch,
         cage_index_ch,
-        poly_a_ch,
-        intropolis_ch,
-        intropolis_index_ch
+        poly_a_ch
     )
 
     filter_input_prep_ch = PIGEON_CLASSIFY.out.classification
