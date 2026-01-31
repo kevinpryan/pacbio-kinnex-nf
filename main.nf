@@ -229,7 +229,7 @@ process ISOSEQ_COLLAPSE {
 
     script:
     """
-    isoseq collapse --min-aln-coverage 0.85 \ 
+    isoseq collapse --min-aln-coverage 0.85 \
                     --min-aln-identity 0.90 \
                     $bam \
                     ${bam_id}.collapsed.gff   
